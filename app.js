@@ -5,6 +5,10 @@ const clone = typeof structuredClone === 'function' ? structuredClone : (value) 
 const DEFAULT_DATA = {
   settings: {
     baseCurrency: 'CNY',
+    hideAmounts: false,
+    pnlMode: 'amount',
+    structureView: 'bar',
+    accountFilter: [],
     fxRates: {
       CNY: 1,
       HKD: 1,
@@ -24,8 +28,21 @@ const ui = {
   refreshQuotes: document.querySelector('#refreshQuotes'),
   quoteStatus: document.querySelector('#quoteStatus'),
   rateStatus: document.querySelector('#rateStatus'),
-  profileRateStatus: document.querySelector('#profileRateStatus'),
-  baseCurrency: document.querySelector('#baseCurrency'),
+  toggleVisibility: document.querySelector('#toggleVisibility'),
+  pnlModeToggle: document.querySelector('#pnlModeToggle'),
+  structureToggle: document.querySelector('#structureToggle'),
+  structureBars: document.querySelector('#structureBars'),
+  structurePies: document.querySelector('#structurePies'),
+  accountPnlTable: document.querySelector('#accountPnlTable'),
+  accountPie: document.querySelector('#accountPie'),
+  assetPie: document.querySelector('#assetPie'),
+  accountPieLegend: document.querySelector('#accountPieLegend'),
+  assetPieLegend: document.querySelector('#assetPieLegend'),
+  accountFilters: document.querySelector('#accountFilters'),
+  openAccountModal: document.querySelector('#openAccountModal'),
+  openHoldingModal: document.querySelector('#openHoldingModal'),
+  accountModal: document.querySelector('#accountModal'),
+  holdingModal: document.querySelector('#holdingModal'),
   refreshRates: document.querySelector('#refreshRates'),
   dashboard: document.querySelector('#dashboard'),
   assetChart: document.querySelector('#assetChart'),
@@ -121,6 +138,40 @@ function formatNumber(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(value || 0);
+}
+
+function maskValue(text) {
+  return state.settings.hideAmounts ? '****' : text;
+}
+
+function formatCurrencyDisplay(value) {
+  return maskValue(formatCurrency(value));
+}
+
+function formatNumberDisplay(value) {
+  return maskValue(formatNumber(value));
+}
+
+function formatPercentDisplay(value) {
+  return maskValue(formatPercent(value));
+}
+
+function formatPnlDisplay(value, base) {
+  if (state.settings.pnlMode === 'percent') {
+    const rate = base > 0 ? value / base : 0;
+    return formatPercentDisplay(rate);
+  }
+  return formatCurrencyDisplay(value);
+}
+
+function getPnlClass(value) {
+  if (value > 0) {
+    return 'pnl-positive';
+  }
+  if (value < 0) {
+    return 'pnl-negative';
+  }
+  return '';
 }
 
 function toBaseCurrency(amount, currency) {
@@ -231,6 +282,29 @@ function computeTotals() {
   );
 }
 
+function computeAccountSummaries() {
+  return state.accounts.map((account) => {
+    const summary = (account.holdings || []).reduce(
+      (acc, holding) => {
+        const value = getHoldingValue(holding);
+        const cost = getHoldingCost(holding);
+        const currency = holding.currency || state.settings.baseCurrency;
+        acc.assets += toBaseCurrency(value, currency);
+        acc.cost += toBaseCurrency(cost, currency);
+        return acc;
+      },
+      { assets: 0, cost: 0 }
+    );
+    return {
+      id: account.id,
+      name: account.name,
+      assets: summary.assets,
+      cost: summary.cost,
+      pnl: summary.assets - summary.cost
+    };
+  });
+}
+
 function ensureTotals() {
   const totals = computeTotals();
   totals.pnl = totals.assets - totals.cost;
@@ -239,6 +313,17 @@ function ensureTotals() {
 
 function sortHistory() {
   state.history.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getPreviousSnapshot() {
+  const today = getTodayISO();
+  sortHistory();
+  for (let i = state.history.length - 1; i >= 0; i -= 1) {
+    if (state.history[i].date < today) {
+      return state.history[i];
+    }
+  }
+  return null;
 }
 
 function getHistorySeries(includeToday) {
@@ -268,10 +353,15 @@ function getHistorySeries(includeToday) {
 function ensureTodaySnapshot() {
   const today = getTodayISO();
   const totals = ensureTotals();
+  const accountAssetsBase = computeAccountSummaries().reduce((acc, item) => {
+    acc[item.id] = item.assets;
+    return acc;
+  }, {});
   const entry = {
     date: today,
     totalAssetsBase: totals.assets,
-    totalPnlBase: totals.pnl
+    totalPnlBase: totals.pnl,
+    accountAssetsBase
   };
 
   const index = state.history.findIndex((item) => item.date === today);
@@ -291,42 +381,123 @@ function updateDashboard() {
   const lastEntry = history[history.length - 1];
   const previousEntry = lastEntry && lastEntry.label === today ? history[history.length - 2] : lastEntry;
   const todayPnl = previousEntry ? totals.assets - previousEntry.assets : 0;
+  const todayBase = previousEntry ? previousEntry.assets : 0;
   const returnRate = totals.cost > 0 ? totals.pnl / totals.cost : 0;
+
+  const todayValue = formatPnlDisplay(todayPnl, todayBase);
+  const totalValue = formatPnlDisplay(totals.pnl, totals.cost);
+  const totalSub = state.settings.pnlMode === 'percent'
+    ? `累计盈亏 ${formatCurrencyDisplay(totals.pnl)}`
+    : `累计收益率 ${formatPercentDisplay(returnRate)}`;
+  const todaySub = previousEntry
+    ? `较 ${previousEntry.label} ${state.settings.pnlMode === 'percent' ? formatCurrencyDisplay(todayPnl) : formatPercentDisplay(todayBase ? todayPnl / todayBase : 0)}`
+    : '等待历史对比';
 
   const cards = [
     {
       title: '总资产',
-      value: formatCurrency(totals.assets),
-      sub: `${state.accounts.length} 个账户 · ${formatCurrency(totals.cost)} 成本`
+      value: formatCurrencyDisplay(totals.assets),
+      sub: `${state.accounts.length} 个账户 · ${formatCurrencyDisplay(totals.cost)} 成本`
     },
     {
       title: '今日盈亏',
-      value: formatCurrency(todayPnl),
-      sub: previousEntry ? `较 ${previousEntry.label}` : '等待历史对比'
+      value: todayValue,
+      sub: todaySub,
+      className: getPnlClass(todayPnl)
     },
     {
       title: '累计盈亏',
-      value: formatCurrency(totals.pnl),
-      sub: `累计收益率 ${formatPercent(returnRate)}`
+      value: totalValue,
+      sub: totalSub,
+      className: getPnlClass(totals.pnl)
     },
     {
       title: '结算币种',
       value: state.settings.baseCurrency,
-      sub: '可在我的页切换'
+      sub: '点击切换结算币种',
+      action: 'cycleCurrency'
     }
   ];
 
   ui.dashboard.innerHTML = cards
     .map(
       (card) => `
-      <div class="panel">
+      <div class="panel ${card.action ? 'clickable' : ''}" ${card.action ? `data-action="${card.action}"` : ''}>
         <h3>${card.title}</h3>
-        <div class="value">${card.value}</div>
+        <div class="value ${card.className || ''}">${card.value}</div>
         <div class="sub">${card.sub}</div>
       </div>
     `
     )
     .join('');
+}
+
+function renderAccountPnlTable() {
+  if (!ui.accountPnlTable) {
+    return;
+  }
+  const summaries = computeAccountSummaries();
+  if (!summaries.length) {
+    ui.accountPnlTable.innerHTML = '<div class="helper">暂无账户数据</div>';
+    return;
+  }
+  const previous = getPreviousSnapshot();
+  const previousAssets = (previous && previous.accountAssetsBase) || {};
+  const hasPrevious = Boolean(previous && previous.accountAssetsBase);
+  const gridTemplate = `120px repeat(${summaries.length}, minmax(120px, 1fr))`;
+
+  const headerCells = summaries.map((item) => `<div class="pnl-cell header">${item.name}</div>`).join('');
+  const todayCells = summaries
+    .map((item) => {
+      const base = previousAssets[item.id] || 0;
+      const todayPnl = hasPrevious ? item.assets - base : 0;
+      return `<div class="pnl-cell ${getPnlClass(todayPnl)}">${formatPnlDisplay(todayPnl, base)}</div>`;
+    })
+    .join('');
+  const totalCells = summaries
+    .map((item) => {
+      return `<div class="pnl-cell ${getPnlClass(item.pnl)}">${formatPnlDisplay(item.pnl, item.cost)}</div>`;
+    })
+    .join('');
+
+  ui.accountPnlTable.innerHTML = `
+    <div class="pnl-grid" style="grid-template-columns: ${gridTemplate};">
+      <div class="pnl-cell header">项目</div>
+      ${headerCells}
+      <div class="pnl-cell header">当日盈亏</div>
+      ${todayCells}
+      <div class="pnl-cell header">总盈亏</div>
+      ${totalCells}
+    </div>
+  `;
+}
+
+function updateSwitchLabel(label, checked) {
+  if (!label) {
+    return;
+  }
+  const text = label.querySelector('.switch-text');
+  if (!text) {
+    return;
+  }
+  const onText = text.dataset.on || '';
+  const offText = text.dataset.off || '';
+  text.textContent = checked ? onText : offText;
+}
+
+function syncHeaderControls() {
+  if (ui.toggleVisibility) {
+    ui.toggleVisibility.textContent = state.settings.hideAmounts ? '🙈' : '👁';
+    ui.toggleVisibility.setAttribute('aria-pressed', state.settings.hideAmounts ? 'true' : 'false');
+  }
+  if (ui.pnlModeToggle) {
+    ui.pnlModeToggle.checked = state.settings.pnlMode === 'percent';
+    updateSwitchLabel(ui.pnlModeToggle.closest('.switch'), ui.pnlModeToggle.checked);
+  }
+  if (ui.structureToggle) {
+    ui.structureToggle.checked = state.settings.structureView === 'pie';
+    updateSwitchLabel(ui.structureToggle.closest('.switch'), ui.structureToggle.checked);
+  }
 }
 
 function renderLineChart(svg, data, color) {
@@ -360,6 +531,9 @@ function renderLineChart(svg, data, color) {
 
   const gradientId = `${svg.id}-gradient`;
 
+  const maxLabel = maskValue(formatNumber(max));
+  const minLabel = maskValue(formatNumber(min));
+
   svg.innerHTML = `
     <defs>
       <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
@@ -370,8 +544,8 @@ function renderLineChart(svg, data, color) {
     <path d="${areaPath}" fill="url(#${gradientId})" />
     <path d="${path}" fill="none" stroke="${color}" stroke-width="3" />
     <circle cx="${points[points.length - 1].x}" cy="${points[points.length - 1].y}" r="4" fill="${color}" />
-    <text x="${padding}" y="${padding}" fill="rgba(255,255,255,0.65)" font-size="11">${formatNumber(max)}</text>
-    <text x="${padding}" y="${height - 6}" fill="rgba(255,255,255,0.45)" font-size="11">${formatNumber(min)}</text>
+    <text x="${padding}" y="${padding}" fill="rgba(255,255,255,0.65)" font-size="11">${maxLabel}</text>
+    <text x="${padding}" y="${height - 6}" fill="rgba(255,255,255,0.45)" font-size="11">${minLabel}</text>
   `;
 }
 
@@ -406,11 +580,57 @@ function renderDistribution(container, items, emptyLabel) {
       node.innerHTML = `
         <div class="dist-label">
           <span>${item.label}</span>
-          <span>${formatCurrency(item.value)} · ${formatPercent(percent)}</span>
+          <span>${formatCurrencyDisplay(item.value)} · ${formatPercentDisplay(percent)}</span>
         </div>
         <div class="bar"><span style="width:${Math.min(percent * 100, 100).toFixed(1)}%"></span></div>
       `;
       container.appendChild(node);
+    });
+}
+
+function renderPieChart(svg, legend, items, emptyLabel) {
+  if (!svg || !legend) {
+    return;
+  }
+  svg.innerHTML = '';
+  legend.innerHTML = '';
+  if (!items.length) {
+    svg.innerHTML = `<text x="12" y="116" fill="rgba(11,19,32,0.6)" font-size="12">${emptyLabel}</text>`;
+    return;
+  }
+  const total = items.reduce((sum, item) => sum + item.value, 0) || 1;
+  const colors = ['#06d6a0', '#118ab2', '#ffd166', '#ef476f', '#073b4c', '#8d5cf6', '#f4a261'];
+  const radius = 80;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
+  items
+    .sort((a, b) => b.value - a.value)
+    .forEach((item, index) => {
+      const percent = item.value / total;
+      const dash = percent * circumference;
+      const color = colors[index % colors.length];
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', '110');
+      circle.setAttribute('cy', '110');
+      circle.setAttribute('r', radius.toString());
+      circle.setAttribute('fill', 'none');
+      circle.setAttribute('stroke', color);
+      circle.setAttribute('stroke-width', '24');
+      circle.setAttribute('stroke-dasharray', `${dash} ${circumference - dash}`);
+      circle.setAttribute('stroke-dashoffset', (-offset).toString());
+      circle.setAttribute('transform', 'rotate(-90 110 110)');
+      svg.appendChild(circle);
+
+      const row = document.createElement('div');
+      row.className = 'legend-row';
+      row.innerHTML = `
+        <span class="legend-dot" style="background:${color}"></span>
+        <span>${item.label}</span>
+        <span>${formatCurrencyDisplay(item.value)} · ${formatPercentDisplay(percent)}</span>
+      `;
+      legend.appendChild(row);
+      offset += dash;
     });
 }
 
@@ -436,6 +656,15 @@ function updateDistributions() {
 
   const categoryItems = Object.entries(categoryTotals).map(([label, value]) => ({ label, value }));
   renderDistribution(ui.assetDistribution, categoryItems, '暂无资产分类');
+
+  renderPieChart(ui.accountPie, ui.accountPieLegend, accountItems, '暂无账户数据');
+  renderPieChart(ui.assetPie, ui.assetPieLegend, categoryItems, '暂无资产分类');
+
+  if (ui.structureBars && ui.structurePies) {
+    const showPie = state.settings.structureView === 'pie';
+    ui.structureBars.classList.toggle('is-hidden', showPie);
+    ui.structurePies.classList.toggle('is-hidden', !showPie);
+  }
 }
 
 function renderAccountList() {
@@ -453,14 +682,14 @@ function renderAccountList() {
     }, 0);
 
     const item = document.createElement('div');
-    item.className = 'list-item';
+    item.className = 'list-item compact';
     item.innerHTML = `
       <div class="row">
         <strong>${account.name}</strong>
       </div>
       <div class="row">
         <span>${(account.holdings || []).length} 个标的</span>
-        <span>${formatCurrency(total)}</span>
+        <span>${formatCurrencyDisplay(total)}</span>
       </div>
       <div class="row" style="gap:8px;">
         <button type="button" class="ghost" data-action="edit" data-id="${account.id}">编辑</button>
@@ -481,18 +710,49 @@ function renderAccountOptions() {
   }
 }
 
+function renderAccountFilters() {
+  if (!ui.accountFilters) {
+    return;
+  }
+  const availableIds = new Set(state.accounts.map((account) => account.id));
+  const selected = Array.isArray(state.settings.accountFilter)
+    ? state.settings.accountFilter.filter((id) => availableIds.has(id))
+    : [];
+  if (selected.length !== state.settings.accountFilter.length) {
+    state.settings.accountFilter = selected;
+    saveData();
+  }
+  const allActive = selected.length === 0;
+  const buttons = [];
+  buttons.push(`<button type="button" class="tag ${allActive ? 'active' : ''}" data-id="all">全部</button>`);
+  state.accounts.forEach((account) => {
+    const isActive = selected.includes(account.id);
+    buttons.push(
+      `<button type="button" class="tag ${isActive ? 'active' : ''}" data-id="${account.id}">${account.name}</button>`
+    );
+  });
+  ui.accountFilters.innerHTML = buttons.join('');
+}
+
 function renderHoldingsList() {
   ui.holdingList.innerHTML = '';
   const allHoldings = [];
+  const selected = Array.isArray(state.settings.accountFilter) ? state.settings.accountFilter : [];
+  const filterActive = selected.length > 0;
 
   state.accounts.forEach((account) => {
+    if (filterActive && !selected.includes(account.id)) {
+      return;
+    }
     (account.holdings || []).forEach((holding) => {
       allHoldings.push({ account, holding });
     });
   });
 
   if (!allHoldings.length) {
-    ui.holdingList.innerHTML = '<div class="helper">还没有持仓，先添加标的。</div>';
+    ui.holdingList.innerHTML = filterActive
+      ? '<div class="helper">当前筛选暂无持仓。</div>'
+      : '<div class="helper">还没有持仓，先添加标的。</div>';
     return;
   }
 
@@ -512,6 +772,12 @@ function renderHoldingsList() {
     const costBase = toBaseCurrency(cost, currency);
     const pnlBase = toBaseCurrency(profit, currency);
     const returnRate = costBase > 0 ? pnlBase / costBase : 0;
+    const pnlMain = state.settings.pnlMode === 'percent'
+      ? formatPercentDisplay(returnRate)
+      : formatCurrencyDisplay(pnlBase);
+    const pnlSub = state.settings.pnlMode === 'percent'
+      ? formatCurrencyDisplay(pnlBase)
+      : formatPercentDisplay(returnRate);
 
     const item = document.createElement('div');
     item.className = 'list-item';
@@ -522,11 +788,11 @@ function renderHoldingsList() {
       </div>
       <div class="row">
         <span>${account.name} · ${holding.category || '未分类'}</span>
-        <span>${formatCurrency(valueBase)}</span>
+        <span>${formatCurrencyDisplay(valueBase)}</span>
       </div>
       <div class="row">
-        <span>最新价 ${formatNumber(price)} ${currency} · 份额 ${formatNumber(quantity)}</span>
-        <span>盈亏 ${formatCurrency(pnlBase)} · ${formatPercent(returnRate)}</span>
+        <span>最新价 ${formatNumberDisplay(price)} ${currency} · 份额 ${formatNumberDisplay(quantity)}</span>
+        <span class="${getPnlClass(pnlBase)}">盈亏 ${pnlMain} · ${pnlSub}</span>
       </div>
       <div class="row" style="gap:8px;">
         <button type="button" class="ghost" data-action="edit" data-account-id="${account.id}" data-id="${holding.id}">编辑</button>
@@ -682,6 +948,83 @@ function fillHoldingForm(accountId, holding) {
   applyHoldingMode();
 }
 
+function openModal(modal) {
+  if (!modal) {
+    return;
+  }
+  modal.classList.add('is-visible');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeModal(modal) {
+  if (!modal) {
+    return;
+  }
+  modal.classList.remove('is-visible');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function cycleBaseCurrency() {
+  const currentIndex = CURRENCIES.indexOf(state.settings.baseCurrency);
+  const next = CURRENCIES[(currentIndex + 1) % CURRENCIES.length];
+  setBaseCurrency(next);
+}
+
+function toggleVisibility() {
+  state.settings.hideAmounts = !state.settings.hideAmounts;
+  saveData();
+  render();
+}
+
+function togglePnlMode() {
+  state.settings.pnlMode = state.settings.pnlMode === 'percent' ? 'amount' : 'percent';
+  saveData();
+  render();
+}
+
+function toggleStructureView() {
+  state.settings.structureView = state.settings.structureView === 'pie' ? 'bar' : 'pie';
+  saveData();
+  render();
+}
+
+function handleAccountFilterClick(event) {
+  const button = event.target.closest('button');
+  if (!button) {
+    return;
+  }
+  const id = button.dataset.id;
+  if (!id) {
+    return;
+  }
+  if (id === 'all') {
+    state.settings.accountFilter = [];
+    saveData();
+    renderAccountFilters();
+    renderHoldingsList();
+    return;
+  }
+  const selected = Array.isArray(state.settings.accountFilter) ? state.settings.accountFilter : [];
+  if (selected.includes(id)) {
+    state.settings.accountFilter = selected.filter((item) => item !== id);
+  } else {
+    state.settings.accountFilter = [...selected, id];
+  }
+  saveData();
+  renderAccountFilters();
+  renderHoldingsList();
+}
+
+function handleDashboardClick(event) {
+  const target = event.target.closest('[data-action]');
+  if (!target) {
+    return;
+  }
+  if (target.dataset.action === 'cycleCurrency') {
+    cycleBaseCurrency();
+  }
+}
+
 function handleAccountSubmit(event) {
   event.preventDefault();
   const name = ui.accountName.value.trim();
@@ -708,6 +1051,7 @@ function handleAccountSubmit(event) {
 
   saveData();
   resetAccountForm();
+  closeModal(ui.accountModal);
   render();
 }
 
@@ -727,7 +1071,7 @@ function handleAccountListClick(event) {
 
   if (target.dataset.action === 'edit') {
     fillAccountForm(account);
-    switchPage('assets');
+    openModal(ui.accountModal);
     return;
   }
   if (target.dataset.action === 'delete') {
@@ -879,6 +1223,7 @@ function handleHoldingSubmit(event) {
 
   saveData();
   resetHoldingForm();
+  closeModal(ui.holdingModal);
   ensureTodaySnapshot();
   render();
 }
@@ -904,7 +1249,7 @@ function handleHoldingListClick(event) {
 
   if (target.dataset.action === 'edit') {
     fillHoldingForm(accountId, holding);
-    switchPage('assets');
+    openModal(ui.holdingModal);
     return;
   }
   if (target.dataset.action === 'delete') {
@@ -957,9 +1302,6 @@ async function refreshRates(force) {
   if (!force && now - lastFetch < 6 * 60 * 60 * 1000) {
     const message = buildRateStatusMessage(state.settings.lastRateOk !== false);
     ui.rateStatus.textContent = message;
-    if (ui.profileRateStatus) {
-      ui.profileRateStatus.textContent = message;
-    }
     return;
   }
 
@@ -989,9 +1331,6 @@ async function refreshRates(force) {
     saveData();
     const message = buildRateStatusMessage(true);
     ui.rateStatus.textContent = message;
-    if (ui.profileRateStatus) {
-      ui.profileRateStatus.textContent = message;
-    }
     render();
   } catch (error) {
     state.settings.lastRateOk = false;
@@ -999,9 +1338,6 @@ async function refreshRates(force) {
     saveData();
     const message = buildRateStatusMessage(false);
     ui.rateStatus.textContent = message;
-    if (ui.profileRateStatus) {
-      ui.profileRateStatus.textContent = message;
-    }
   }
 }
 
@@ -1071,15 +1407,22 @@ async function refreshQuotes(force) {
   }
 }
 
-function updateBaseCurrency() {
-  const newBase = ui.baseCurrency.value;
+function setBaseCurrency(newBase) {
+  if (!newBase || newBase === state.settings.baseCurrency) {
+    return;
+  }
   const oldRates = state.settings.fxRates;
   const conversionRate = oldRates[newBase];
   if (conversionRate) {
     state.history = state.history.map((entry) => ({
       ...entry,
       totalAssetsBase: entry.totalAssetsBase / conversionRate,
-      totalPnlBase: entry.totalPnlBase / conversionRate
+      totalPnlBase: entry.totalPnlBase / conversionRate,
+      accountAssetsBase: entry.accountAssetsBase
+        ? Object.fromEntries(
+            Object.entries(entry.accountAssetsBase).map(([key, value]) => [key, value / conversionRate])
+          )
+        : entry.accountAssetsBase
     }));
   }
   state.settings.baseCurrency = newBase;
@@ -1143,31 +1486,81 @@ function switchPage(target) {
   ui.navButtons.forEach((button) => {
     button.classList.toggle('active', button.dataset.target === target);
   });
+  closeModal(ui.accountModal);
+  closeModal(ui.holdingModal);
 }
 
 function render() {
-  ui.baseCurrency.value = state.settings.baseCurrency;
   updateDashboard();
+  renderAccountPnlTable();
   updateCharts();
   updateDistributions();
   renderAccountList();
   renderAccountOptions();
+  renderAccountFilters();
   renderHoldingsList();
   const rateMessage = buildRateStatusMessage(state.settings.lastRateOk !== false);
   ui.rateStatus.textContent = rateMessage;
-  if (ui.profileRateStatus) {
-    ui.profileRateStatus.textContent = rateMessage;
-  }
   ui.quoteStatus.textContent = buildQuoteStatusMessage(state.settings.lastQuoteOk !== false);
+  syncHeaderControls();
 }
 
 function bindEvents() {
   ui.refreshQuotes.addEventListener('click', () => refreshQuotes(true));
   ui.refreshRates.addEventListener('click', () => refreshRates(true));
-  ui.baseCurrency.addEventListener('change', updateBaseCurrency);
+  if (ui.toggleVisibility) {
+    ui.toggleVisibility.addEventListener('click', toggleVisibility);
+  }
+  if (ui.pnlModeToggle) {
+    ui.pnlModeToggle.addEventListener('change', togglePnlMode);
+  }
+  if (ui.structureToggle) {
+    ui.structureToggle.addEventListener('change', toggleStructureView);
+  }
+  if (ui.dashboard) {
+    ui.dashboard.addEventListener('click', handleDashboardClick);
+  }
   ui.accountForm.addEventListener('submit', handleAccountSubmit);
   ui.resetAccountForm.addEventListener('click', resetAccountForm);
   ui.accountList.addEventListener('click', handleAccountListClick);
+  if (ui.accountFilters) {
+    ui.accountFilters.addEventListener('click', handleAccountFilterClick);
+  }
+  if (ui.openAccountModal) {
+    ui.openAccountModal.addEventListener('click', () => {
+      resetAccountForm();
+      openModal(ui.accountModal);
+    });
+  }
+  if (ui.openHoldingModal) {
+    ui.openHoldingModal.addEventListener('click', () => {
+      resetHoldingForm();
+      openModal(ui.holdingModal);
+    });
+  }
+  if (ui.accountModal) {
+    ui.accountModal.addEventListener('click', (event) => {
+      if (event.target === ui.accountModal) {
+        closeModal(ui.accountModal);
+      }
+    });
+  }
+  if (ui.holdingModal) {
+    ui.holdingModal.addEventListener('click', (event) => {
+      if (event.target === ui.holdingModal) {
+        closeModal(ui.holdingModal);
+      }
+    });
+  }
+  document.addEventListener('click', (event) => {
+    const action = event.target.dataset && event.target.dataset.action;
+    if (action === 'closeAccountModal') {
+      closeModal(ui.accountModal);
+    }
+    if (action === 'closeHoldingModal') {
+      closeModal(ui.holdingModal);
+    }
+  });
   ui.holdingForm.addEventListener('submit', handleHoldingSubmit);
   ui.holdingSearch.addEventListener('click', handleHoldingSearch);
   ui.holdingAmount.addEventListener('input', updateDerivedHolding);

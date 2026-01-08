@@ -31,10 +31,28 @@
       <section class="page active" data-page="summary">
         <div class="notice" id="quoteStatus">行情待更新</div>
         <div class="notice" id="rateStatus">汇率待更新</div>
+        <div class="summary-actions">
+          <button id="refreshRates" class="ghost">更新汇率</button>
+        </div>
 
         <section>
-          <h2 class="section-title">总览</h2>
+          <div class="section-head">
+            <h2 class="section-title">总览</h2>
+            <div class="section-actions">
+              <button id="toggleVisibility" class="icon-button" aria-pressed="false" title="隐藏资产数据">👁</button>
+              <label class="switch">
+                <span>盈亏显示</span>
+                <input type="checkbox" id="pnlModeToggle" />
+                <span class="slider"></span>
+                <span class="switch-text" data-on="百分比" data-off="金额">金额</span>
+              </label>
+            </div>
+          </div>
           <div class="grid dashboard" id="dashboard"></div>
+          <div class="panel account-pnl">
+            <h3>账户盈亏</h3>
+            <div id="accountPnlTable" class="pnl-table"></div>
+          </div>
         </section>
 
         <section>
@@ -42,18 +60,28 @@
           <div class="grid charts">
             <div class="card">
               <h3>总资产曲线</h3>
-              <svg id="assetChart" viewBox="0 0 320 180" preserveAspectRatio="none"></svg>
+              <svg id="assetChart" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet"></svg>
             </div>
             <div class="card">
               <h3>累计收益曲线</h3>
-              <svg id="pnlChart" viewBox="0 0 320 180" preserveAspectRatio="none"></svg>
+              <svg id="pnlChart" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet"></svg>
             </div>
           </div>
         </section>
 
         <section>
-          <h2 class="section-title">结构</h2>
-          <div class="grid charts">
+          <div class="section-head">
+            <h2 class="section-title">结构</h2>
+            <div class="section-actions">
+              <label class="switch">
+                <span>显示方式</span>
+                <input type="checkbox" id="structureToggle" />
+                <span class="slider"></span>
+                <span class="switch-text" data-on="饼图" data-off="条状">条状</span>
+              </label>
+            </div>
+          </div>
+          <div class="grid charts structure-view" id="structureBars">
             <div class="panel">
               <h3>账户分布</h3>
               <div class="list" id="accountDistribution"></div>
@@ -63,143 +91,49 @@
               <div class="list" id="assetDistribution"></div>
             </div>
           </div>
+          <div class="grid charts structure-view is-hidden" id="structurePies">
+            <div class="panel">
+              <h3>账户分布</h3>
+              <div class="pie-wrap">
+                <svg id="accountPie" viewBox="0 0 220 220"></svg>
+                <div class="pie-legend" id="accountPieLegend"></div>
+              </div>
+            </div>
+            <div class="panel">
+              <h3>资产分布（按分类）</h3>
+              <div class="pie-wrap">
+                <svg id="assetPie" viewBox="0 0 220 220"></svg>
+                <div class="pie-legend" id="assetPieLegend"></div>
+              </div>
+            </div>
+          </div>
         </section>
       </section>
 
       <section class="page" data-page="assets">
         <section>
-          <h2 class="section-title">账户管理</h2>
-          <div class="grid charts">
-            <div class="panel">
-              <h3>账户列表</h3>
-              <div class="list" id="accountList"></div>
-            </div>
-            <div class="panel">
-              <h3>新增 / 编辑账户</h3>
-              <form id="accountForm" class="form">
-                <input type="hidden" id="accountId" />
-                <div class="row">
-                  <label>
-                    账户名称
-                    <input id="accountName" placeholder="如：支付宝理财" required />
-                  </label>
-                </div>
-                <div class="row">
-                  <button type="submit" class="accent">保存账户</button>
-                  <button type="button" id="resetAccountForm" class="ghost">清空</button>
-                </div>
-              </form>
-            </div>
+          <div class="section-head">
+            <h2 class="section-title">账户管理</h2>
+            <button id="openAccountModal" class="ghost">新增/编辑账户</button>
+          </div>
+          <div class="panel compact">
+            <div class="list compact-list" id="accountList"></div>
           </div>
         </section>
 
         <section>
-          <h2 class="section-title">持仓管理</h2>
-          <div class="grid charts">
-            <div class="panel">
-              <h3>持仓列表</h3>
-              <div class="list" id="holdingList"></div>
-            </div>
-            <div class="panel">
-              <h3>新增 / 编辑持仓</h3>
-              <form id="holdingForm" class="form">
-                <input type="hidden" id="holdingId" />
-                <div class="row">
-                  <label>
-                    账户
-                    <select id="holdingAccount" required></select>
-                  </label>
-                  <label class="span-2">
-                    标的代码
-                    <div class="input-group">
-                      <input id="holdingCode" placeholder="AAPL / 600519 / 0700" required />
-                      <button type="button" id="holdingSearch" class="ghost">检索</button>
-                    </div>
-                  </label>
-                </div>
-                <div class="row">
-                  <label>
-                    标的名称
-                    <input id="holdingName" readonly />
-                  </label>
-                  <label>
-                    币种
-                    <input id="holdingCurrency" readonly />
-                  </label>
-                  <label>
-                    最新价
-                    <input id="holdingPrice" readonly />
-                  </label>
-                  <label>
-                    分类
-                    <input id="holdingCategory" readonly />
-                  </label>
-                </div>
-                <div class="row holding-inputs" id="holdingStockInputs">
-                  <label>
-                    持仓数量
-                    <input id="holdingQuantity" type="number" step="0.0001" min="0" />
-                  </label>
-                  <label>
-                    成本价
-                    <input id="holdingCostPrice" type="number" step="0.0001" min="0" />
-                  </label>
-                </div>
-                <div class="row holding-inputs" id="holdingFundInputs">
-                  <label>
-                    持有金额
-                    <input id="holdingAmount" type="number" step="0.01" min="0" required />
-                  </label>
-                  <label>
-                    持有收益
-                    <input id="holdingProfit" type="number" step="0.01" required />
-                  </label>
-                </div>
-                <div class="row">
-                  <label>
-                    成本金额
-                    <input id="holdingCost" readonly />
-                  </label>
-                  <label>
-                    份额数量
-                    <input id="holdingShares" readonly />
-                  </label>
-                  <label>
-                    收益率
-                    <input id="holdingReturn" readonly />
-                  </label>
-                </div>
-                <div class="helper">基金填写持有金额/收益；股票填写持仓数量/成本价。代码规则：A 股 600519 / 000001，会自动识别沪深；港股 0700；美股 AAPL；基金 005963。</div>
-                <div class="row">
-                  <button type="submit" class="accent">保存持仓</button>
-                  <button type="button" id="resetHoldingForm" class="ghost">清空</button>
-                </div>
-              </form>
-            </div>
+          <div class="section-head">
+            <h2 class="section-title">持仓管理</h2>
+            <button id="openHoldingModal" class="ghost">新增/编辑持仓</button>
+          </div>
+          <div class="panel compact">
+            <div class="filter-tags" id="accountFilters"></div>
+            <div class="list" id="holdingList"></div>
           </div>
         </section>
       </section>
 
       <section class="page" data-page="profile">
-        <section>
-          <h2 class="section-title">我的设置</h2>
-          <div class="panel form">
-            <div class="row">
-              <label>
-                结算币种
-                <select id="baseCurrency">
-                  <option value="CNY">人民币</option>
-                  <option value="HKD">港币</option>
-                  <option value="USD">美元</option>
-                </select>
-              </label>
-              <button id="refreshRates" class="ghost">更新汇率</button>
-            </div>
-            <div class="notice" id="profileRateStatus">汇率待更新</div>
-            <div class="helper">行情与汇率都需要运行本地代理：node server.js</div>
-          </div>
-        </section>
-
         <section>
           <h2 class="section-title">备份与恢复</h2>
           <div class="panel">
@@ -212,8 +146,113 @@
             </div>
             <div class="helper">通过系统文件选择器保存/读取 JSON 文件。</div>
           </div>
+          <div class="helper">行情与汇率需要运行本地代理：node server.js</div>
         </section>
       </section>
+
+      <div class="modal" id="accountModal" aria-hidden="true">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>新增 / 编辑账户</h3>
+            <button type="button" class="icon-button" data-action="closeAccountModal">✕</button>
+          </div>
+          <form id="accountForm" class="form">
+            <input type="hidden" id="accountId" />
+            <div class="row">
+              <label>
+                账户名称
+                <input id="accountName" placeholder="如：支付宝理财" required />
+              </label>
+            </div>
+            <div class="row">
+              <button type="submit" class="accent">保存账户</button>
+              <button type="button" id="resetAccountForm" class="ghost">清空</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="modal" id="holdingModal" aria-hidden="true">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>新增 / 编辑持仓</h3>
+            <button type="button" class="icon-button" data-action="closeHoldingModal">✕</button>
+          </div>
+          <form id="holdingForm" class="form">
+            <input type="hidden" id="holdingId" />
+            <div class="row">
+              <label>
+                账户
+                <select id="holdingAccount" required></select>
+              </label>
+              <label class="span-2">
+                标的代码
+                <div class="input-group">
+                  <input id="holdingCode" placeholder="AAPL / 600519 / 0700" required />
+                  <button type="button" id="holdingSearch" class="ghost">检索</button>
+                </div>
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                标的名称
+                <input id="holdingName" readonly />
+              </label>
+              <label>
+                币种
+                <input id="holdingCurrency" readonly />
+              </label>
+              <label>
+                最新价
+                <input id="holdingPrice" readonly />
+              </label>
+              <label>
+                分类
+                <input id="holdingCategory" readonly />
+              </label>
+            </div>
+            <div class="row holding-inputs" id="holdingStockInputs">
+              <label>
+                持仓数量
+                <input id="holdingQuantity" type="number" step="0.0001" min="0" />
+              </label>
+              <label>
+                成本价
+                <input id="holdingCostPrice" type="number" step="0.0001" min="0" />
+              </label>
+            </div>
+            <div class="row holding-inputs" id="holdingFundInputs">
+              <label>
+                持有金额
+                <input id="holdingAmount" type="number" step="0.01" min="0" required />
+              </label>
+              <label>
+                持有收益
+                <input id="holdingProfit" type="number" step="0.01" required />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                成本金额
+                <input id="holdingCost" readonly />
+              </label>
+              <label>
+                份额数量
+                <input id="holdingShares" readonly />
+              </label>
+              <label>
+                收益率
+                <input id="holdingReturn" readonly />
+              </label>
+            </div>
+            <div class="helper">基金填写持有金额/收益；股票填写持仓数量/成本价。代码规则：A 股 600519 / 000001，会自动识别沪深；港股 0700；美股 AAPL；基金 005963。</div>
+            <div class="row">
+              <button type="submit" class="accent">保存持仓</button>
+              <button type="button" id="resetHoldingForm" class="ghost">清空</button>
+            </div>
+          </form>
+        </div>
+      </div>
     </main>
 
     <nav class="bottom-nav">

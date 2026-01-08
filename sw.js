@@ -1,4 +1,4 @@
-const CACHE_NAME = 'portfolio-tool-v8';
+const CACHE_NAME = 'portfolio-tool-v9';
 const CORE_ASSETS = [
   './',
   'index.html',
