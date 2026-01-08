@@ -25,21 +25,23 @@
         </div>
         <div class="actions">
           <button id="refreshQuotes" class="accent">更新行情</button>
+          <button id="refreshRates" class="ghost">更新汇率</button>
         </div>
       </header>
 
       <section class="page active" data-page="summary">
         <div class="notice" id="quoteStatus">行情待更新</div>
         <div class="notice" id="rateStatus">汇率待更新</div>
-        <div class="summary-actions">
-          <button id="refreshRates" class="ghost">更新汇率</button>
-        </div>
 
         <section>
           <div class="section-head">
             <h2 class="section-title">总览</h2>
             <div class="section-actions">
               <button id="toggleVisibility" class="icon-button" aria-pressed="false" title="隐藏资产数据">👁</button>
+              <label class="currency-select">
+                <span>结算币种</span>
+                <select id="baseCurrencySelect"></select>
+              </label>
               <label class="switch">
                 <span>盈亏显示</span>
                 <input type="checkbox" id="pnlModeToggle" />
@@ -113,22 +115,22 @@
       <section class="page" data-page="assets">
         <section>
           <div class="section-head">
-            <h2 class="section-title">账户管理</h2>
-            <button id="openAccountModal" class="ghost">新增/编辑账户</button>
-          </div>
-          <div class="panel compact">
-            <div class="list compact-list" id="accountList"></div>
-          </div>
-        </section>
-
-        <section>
-          <div class="section-head">
             <h2 class="section-title">持仓管理</h2>
             <button id="openHoldingModal" class="ghost">新增/编辑持仓</button>
           </div>
           <div class="panel compact">
             <div class="filter-tags" id="accountFilters"></div>
             <div class="list" id="holdingList"></div>
+          </div>
+        </section>
+
+        <section>
+          <div class="section-head">
+            <h2 class="section-title">账户管理</h2>
+            <button id="openAccountModal" class="ghost">新增/编辑账户</button>
+          </div>
+          <div class="panel compact">
+            <div class="list compact-list" id="accountList"></div>
           </div>
         </section>
       </section>
