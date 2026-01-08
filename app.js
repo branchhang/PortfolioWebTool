@@ -682,18 +682,20 @@ function renderAccountList() {
     }, 0);
 
     const item = document.createElement('div');
-    item.className = 'list-item compact';
+    item.className = 'list-item compact account-item';
     item.innerHTML = `
-      <div class="row">
-        <strong>${account.name}</strong>
-      </div>
-      <div class="row">
-        <span>${(account.holdings || []).length} 个标的</span>
-        <span>${formatCurrencyDisplay(total)}</span>
-      </div>
-      <div class="row" style="gap:8px;">
-        <button type="button" class="ghost" data-action="edit" data-id="${account.id}">编辑</button>
-        <button type="button" class="ghost" data-action="delete" data-id="${account.id}">删除</button>
+      <div class="account-row">
+        <div class="account-info">
+          <strong>${account.name}</strong>
+          <span class="account-meta">${(account.holdings || []).length} 个标的</span>
+        </div>
+        <div class="account-right">
+          <span class="account-amount">${formatCurrencyDisplay(total)}</span>
+          <div class="account-actions">
+            <button type="button" class="ghost small" data-action="edit" data-id="${account.id}">编辑</button>
+            <button type="button" class="ghost small" data-action="delete" data-id="${account.id}">删除</button>
+          </div>
+        </div>
       </div>
     `;
 
