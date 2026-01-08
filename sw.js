@@ -1,4 +1,4 @@
-const CACHE_NAME = 'portfolio-tool-v10';
+const CACHE_NAME = 'portfolio-tool-v11';
 const CORE_ASSETS = [
   './',
   'index.html',
@@ -35,7 +35,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  event.respondWith(
+  const isSameOrigin = url.origin === self.location.origin;
+  const isNavigation = event.request.mode === 'navigate';
+  const isCoreAsset = CORE_ASSETS.some((asset) => url.pathname.endsWith(asset));
+  const shouldUseNetworkFirst = isSameOrigin && (isNavigation || isCoreAsset);
+
+  const networkFirst = () =>
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request));
+
+  const cacheFirst = () =>
     caches.match(event.request).then((cached) => {
       if (cached) {
         return cached;
@@ -48,6 +62,7 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => cached);
-    })
-  );
+    });
+
+  event.respondWith(shouldUseNetworkFirst ? networkFirst() : cacheFirst());
 });
