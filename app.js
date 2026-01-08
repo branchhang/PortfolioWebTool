@@ -29,6 +29,7 @@ const ui = {
   quoteStatus: document.querySelector('#quoteStatus'),
   rateStatus: document.querySelector('#rateStatus'),
   toggleVisibility: document.querySelector('#toggleVisibility'),
+  baseCurrencySelect: document.querySelector('#baseCurrencySelect'),
   pnlModeToggle: document.querySelector('#pnlModeToggle'),
   structureToggle: document.querySelector('#structureToggle'),
   structureBars: document.querySelector('#structureBars'),
@@ -140,6 +141,13 @@ function formatNumber(value) {
   }).format(value || 0);
 }
 
+function formatRate(value) {
+  return new Intl.NumberFormat('zh-CN', {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4
+  }).format(value || 0);
+}
+
 function maskValue(text) {
   return state.settings.hideAmounts ? '****' : text;
 }
@@ -150,6 +158,10 @@ function formatCurrencyDisplay(value) {
 
 function formatNumberDisplay(value) {
   return maskValue(formatNumber(value));
+}
+
+function formatRateDisplay(value) {
+  return maskValue(formatRate(value));
 }
 
 function formatPercentDisplay(value) {
@@ -410,12 +422,6 @@ function updateDashboard() {
       value: totalValue,
       sub: totalSub,
       className: getPnlClass(totals.pnl)
-    },
-    {
-      title: '结算币种',
-      value: state.settings.baseCurrency,
-      sub: '点击切换结算币种',
-      action: 'cycleCurrency'
     }
   ];
 
@@ -683,18 +689,19 @@ function renderAccountList() {
 
     const item = document.createElement('div');
     item.className = 'list-item compact account-item';
+    item.dataset.id = account.id;
     item.innerHTML = `
       <div class="account-row">
         <div class="account-info">
-          <strong>${account.name}</strong>
-          <span class="account-meta">${(account.holdings || []).length} 个标的</span>
+          <span class="account-name">${account.name}</span>
         </div>
-        <div class="account-right">
+        <div class="account-summary">
+          <span class="account-meta">${(account.holdings || []).length} 个标的</span>
           <span class="account-amount">${formatCurrencyDisplay(total)}</span>
-          <div class="account-actions">
-            <button type="button" class="ghost small" data-action="edit" data-id="${account.id}">编辑</button>
-            <button type="button" class="ghost small" data-action="delete" data-id="${account.id}">删除</button>
-          </div>
+        </div>
+        <div class="account-actions">
+          <button type="button" class="ghost small" data-action="edit" data-id="${account.id}">编辑</button>
+          <button type="button" class="ghost small" data-action="delete" data-id="${account.id}">删除</button>
         </div>
       </div>
     `;
@@ -782,21 +789,26 @@ function renderHoldingsList() {
       : formatPercentDisplay(returnRate);
 
     const item = document.createElement('div');
-    item.className = 'list-item';
+    item.className = 'holding-item';
     item.innerHTML = `
-      <div class="row">
-        <strong>${holding.name || holding.code}</strong>
-        <span class="badge">${holding.symbol || holding.code}</span>
+      <div class="holding-header">
+        <div class="holding-title">
+          <span class="holding-name">${holding.name || holding.code}</span>
+          <span class="holding-meta">${account.name} · ${holding.category || '未分类'}</span>
+        </div>
+        <div class="holding-value">${formatCurrencyDisplay(valueBase)}</div>
       </div>
-      <div class="row">
-        <span>${account.name} · ${holding.category || '未分类'}</span>
-        <span>${formatCurrencyDisplay(valueBase)}</span>
+      <div class="holding-body">
+        <div class="holding-stats">
+          <span>代码 ${holding.symbol || holding.code}</span>
+          <span>最新价 ${formatNumberDisplay(price)} ${currency}</span>
+        </div>
+        <div class="holding-stats">
+          <span>份额 ${formatNumberDisplay(quantity)}</span>
+          <span class="holding-pnl ${getPnlClass(pnlBase)}">盈亏 ${pnlMain} · ${pnlSub}</span>
+        </div>
       </div>
-      <div class="row">
-        <span>最新价 ${formatNumberDisplay(price)} ${currency} · 份额 ${formatNumberDisplay(quantity)}</span>
-        <span class="${getPnlClass(pnlBase)}">盈亏 ${pnlMain} · ${pnlSub}</span>
-      </div>
-      <div class="row" style="gap:8px;">
+      <div class="holding-actions">
         <button type="button" class="ghost" data-action="edit" data-account-id="${account.id}" data-id="${holding.id}">编辑</button>
         <button type="button" class="ghost" data-action="delete" data-account-id="${account.id}" data-id="${holding.id}">删除</button>
       </div>
@@ -966,12 +978,6 @@ function closeModal(modal) {
   modal.setAttribute('aria-hidden', 'true');
 }
 
-function cycleBaseCurrency() {
-  const currentIndex = CURRENCIES.indexOf(state.settings.baseCurrency);
-  const next = CURRENCIES[(currentIndex + 1) % CURRENCIES.length];
-  setBaseCurrency(next);
-}
-
 function toggleVisibility() {
   state.settings.hideAmounts = !state.settings.hideAmounts;
   saveData();
@@ -1017,16 +1023,6 @@ function handleAccountFilterClick(event) {
   renderHoldingsList();
 }
 
-function handleDashboardClick(event) {
-  const target = event.target.closest('[data-action]');
-  if (!target) {
-    return;
-  }
-  if (target.dataset.action === 'cycleCurrency') {
-    cycleBaseCurrency();
-  }
-}
-
 function handleAccountSubmit(event) {
   event.preventDefault();
   const name = ui.accountName.value.trim();
@@ -1062,7 +1058,9 @@ function handleAccountListClick(event) {
   if (!(target instanceof HTMLElement)) {
     return;
   }
-  const id = target.dataset.id;
+  const actionButton = target.closest('button[data-action]');
+  const item = target.closest('.account-item');
+  const id = actionButton ? actionButton.dataset.id : item?.dataset.id;
   if (!id) {
     return;
   }
@@ -1071,17 +1069,26 @@ function handleAccountListClick(event) {
     return;
   }
 
-  if (target.dataset.action === 'edit') {
+  if (actionButton && actionButton.dataset.action === 'edit') {
     fillAccountForm(account);
     openModal(ui.accountModal);
     return;
   }
-  if (target.dataset.action === 'delete') {
+  if (actionButton && actionButton.dataset.action === 'delete') {
     if (window.confirm('确定删除该账户吗？')) {
       state.accounts = state.accounts.filter((item) => item.id !== id);
       saveData();
       render();
     }
+    return;
+  }
+
+  if (item) {
+    const isActive = item.classList.contains('is-active');
+    ui.accountList.querySelectorAll('.account-item.is-active').forEach((node) => {
+      node.classList.remove('is-active');
+    });
+    item.classList.toggle('is-active', !isActive);
   }
 }
 
@@ -1275,7 +1282,7 @@ function buildRateStatusMessage(success) {
   CURRENCIES.filter((code) => code !== base).forEach((code) => {
     const rate = state.settings.fxRates[code];
     if (rate) {
-      lines.push(`1 ${code} = ${formatNumber(rate)} ${base}`);
+      lines.push(`1 ${code} = ${formatRateDisplay(rate)} ${base}`);
     }
   });
 
@@ -1501,6 +1508,12 @@ function render() {
   renderAccountOptions();
   renderAccountFilters();
   renderHoldingsList();
+  if (ui.baseCurrencySelect) {
+    ui.baseCurrencySelect.innerHTML = CURRENCIES.map(
+      (currency) => `<option value="${currency}">${currency}</option>`
+    ).join('');
+    ui.baseCurrencySelect.value = state.settings.baseCurrency;
+  }
   const rateMessage = buildRateStatusMessage(state.settings.lastRateOk !== false);
   ui.rateStatus.textContent = rateMessage;
   ui.quoteStatus.textContent = buildQuoteStatusMessage(state.settings.lastQuoteOk !== false);
@@ -1519,8 +1532,10 @@ function bindEvents() {
   if (ui.structureToggle) {
     ui.structureToggle.addEventListener('change', toggleStructureView);
   }
-  if (ui.dashboard) {
-    ui.dashboard.addEventListener('click', handleDashboardClick);
+  if (ui.baseCurrencySelect) {
+    ui.baseCurrencySelect.addEventListener('change', (event) => {
+      setBaseCurrency(event.target.value);
+    });
   }
   ui.accountForm.addEventListener('submit', handleAccountSubmit);
   ui.resetAccountForm.addEventListener('click', resetAccountForm);
