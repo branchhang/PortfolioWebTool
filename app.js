@@ -68,6 +68,7 @@ const ui = {
   holdingId: document.querySelector('#holdingId'),
   holdingAccount: document.querySelector('#holdingAccount'),
   holdingCode: document.querySelector('#holdingCode'),
+  holdingType: document.querySelector('#holdingType'),
   holdingCategory: document.querySelector('#holdingCategory'),
   holdingFundInputs: document.querySelector('#holdingFundInputs'),
   holdingStockInputs: document.querySelector('#holdingStockInputs'),
@@ -222,6 +223,11 @@ function isFundHolding(holding) {
   return holding.source === 'fund' || category.includes('基金');
 }
 
+function isCashHolding(holding) {
+  const category = String(holding.category || '').toLowerCase();
+  return holding.source === 'cash' || category.includes('现金');
+}
+
 function getHoldingValue(holding) {
   if (isFundHolding(holding)) {
     const amount = Number(holding.amount);
@@ -293,7 +299,7 @@ function getHoldingQuantity(holding, value, price) {
 
 function getHoldingTodayProfit(holding) {
   const today = getTodayISO();
-  if (getDateKeyFromTimestamp(holding.lastUpdate) !== today) {
+  if (!isCashHolding(holding) && getDateKeyFromTimestamp(holding.lastUpdate) !== today) {
     return null;
   }
   const latestValue = getHoldingValue(holding);
@@ -320,6 +326,29 @@ function ensureHoldingTodayStart(holding, latestPrice) {
   const startValue = getHoldingValue(holding);
   holding.todayStartAmount = Number.isFinite(startValue) ? startValue : 0;
   holding.todayStartDate = today;
+}
+
+function updateHoldingFromQuote(holding, quotePrice) {
+  if (!isFundHolding(holding)) {
+    return;
+  }
+  const price = Number(quotePrice);
+  if (!Number.isFinite(price) || price <= 0) {
+    return;
+  }
+  const quantity = Number(holding.quantity);
+  const resolvedQuantity = Number.isFinite(quantity) && quantity > 0
+    ? quantity
+    : Number.isFinite(Number(holding.amount)) && price > 0
+      ? Number(holding.amount) / price
+      : 0;
+  const cost = Number(holding.cost);
+  const amount = resolvedQuantity * price;
+  holding.quantity = resolvedQuantity;
+  holding.amount = Number.isFinite(amount) ? amount : holding.amount;
+  if (Number.isFinite(cost)) {
+    holding.profit = holding.amount - cost;
+  }
 }
 
 function normalizeSymbol(code) {
@@ -868,7 +897,7 @@ function renderHoldingsList() {
   let refreshedTodayStart = false;
 
   const enrichedHoldings = allHoldings.map(({ account, holding }) => {
-    if (getDateKeyFromTimestamp(holding.lastUpdate) === getTodayISO()) {
+    if (getDateKeyFromTimestamp(holding.lastUpdate) === getTodayISO() || isCashHolding(holding)) {
       const previousDate = holding.todayStartDate;
       ensureHoldingTodayStart(holding, holding.lastPrice);
       if (holding.todayStartDate !== previousDate) {
@@ -1089,6 +1118,9 @@ function resetHoldingForm() {
   ui.holdingId.value = '';
   ui.holdingAccount.value = '';
   ui.holdingCode.value = '';
+  if (ui.holdingType) {
+    ui.holdingType.value = 'stock';
+  }
   clearHoldingLookup();
   ui.holdingCategory.value = '';
   ui.holdingQuantity.value = '';
@@ -1118,28 +1150,52 @@ function clearHoldingLookup() {
 }
 
 function getHoldingMode() {
+  if (ui.holdingType && ui.holdingType.value) {
+    return ui.holdingType.value;
+  }
   const source = ui.holdingCode.dataset.source || '';
   const category = (ui.holdingCode.dataset.category || ui.holdingCategory.value || '').toLowerCase();
   if (source === 'fund') {
     return 'fund';
   }
+  if (source === 'cash') {
+    return 'cash';
+  }
   if (category.includes('基金')) {
     return 'fund';
   }
+  if (category.includes('现金')) {
+    return 'cash';
+  }
   return 'stock';
+}
+
+function applyCashDefaults() {
+  const defaultCurrency = ui.holdingCurrency.value || state.settings.baseCurrency;
+  ui.holdingCode.value = ui.holdingCode.value || 'CASH';
+  ui.holdingName.value = ui.holdingName.value || '现金';
+  ui.holdingCurrency.value = defaultCurrency;
+  ui.holdingPrice.value = '1';
+  ui.holdingCategory.value = '现金';
+  ui.holdingCode.dataset.symbol = 'CASH';
+  ui.holdingCode.dataset.name = '现金';
+  ui.holdingCode.dataset.currency = defaultCurrency;
+  ui.holdingCode.dataset.price = '1';
+  ui.holdingCode.dataset.source = 'cash';
+  ui.holdingCode.dataset.category = '现金';
 }
 
 function applyHoldingMode() {
   const mode = getHoldingMode();
   if (ui.holdingFundInputs) {
-    ui.holdingFundInputs.classList.toggle('is-hidden', mode !== 'fund');
+    ui.holdingFundInputs.classList.toggle('is-hidden', mode === 'stock');
   }
   if (ui.holdingStockInputs) {
     ui.holdingStockInputs.classList.toggle('is-hidden', mode !== 'stock');
   }
-  ui.holdingAmount.readOnly = mode !== 'fund';
+  ui.holdingAmount.readOnly = mode === 'stock';
   ui.holdingProfit.readOnly = mode !== 'fund';
-  ui.holdingAmount.required = mode === 'fund';
+  ui.holdingAmount.required = mode !== 'stock';
   ui.holdingProfit.required = mode === 'fund';
   if (ui.holdingQuantity) {
     ui.holdingQuantity.readOnly = mode !== 'stock';
@@ -1152,6 +1208,26 @@ function applyHoldingMode() {
   if (mode === 'fund') {
     ui.holdingQuantity.value = '';
     ui.holdingCostPrice.value = '';
+  }
+  if (mode === 'cash') {
+    ui.holdingProfit.value = '0';
+    ui.holdingProfit.readOnly = true;
+    ui.holdingCode.readOnly = true;
+    ui.holdingCode.required = false;
+    ui.holdingSearch.disabled = true;
+    ui.holdingName.readOnly = true;
+    ui.holdingCurrency.readOnly = false;
+    ui.holdingPrice.readOnly = true;
+    ui.holdingCategory.readOnly = true;
+    applyCashDefaults();
+  } else {
+    ui.holdingCode.readOnly = false;
+    ui.holdingCode.required = true;
+    ui.holdingSearch.disabled = false;
+    ui.holdingName.readOnly = true;
+    ui.holdingCurrency.readOnly = true;
+    ui.holdingPrice.readOnly = true;
+    ui.holdingCategory.readOnly = true;
   }
   updateDerivedHolding();
 }
@@ -1179,6 +1255,14 @@ function updateDerivedHolding() {
     }
     cost = Number.isFinite(amount) && Number.isFinite(profit) ? amount - profit : NaN;
     shares = price > 0 && Number.isFinite(amount) ? amount / price : NaN;
+  } else if (mode === 'cash') {
+    if (!Number.isNaN(amountInput)) {
+      amount = amountInput;
+    }
+    profit = 0;
+    cost = Number.isFinite(amount) ? amount : NaN;
+    shares = price > 0 && Number.isFinite(amount) ? amount / price : NaN;
+    ui.holdingProfit.value = '0.00';
   } else {
     const quantity = Number.isNaN(quantityInput) ? NaN : quantityInput;
     const costPrice = Number.isNaN(costPriceInput) ? NaN : costPriceInput;
@@ -1205,6 +1289,13 @@ function fillHoldingForm(accountId, holding) {
   ui.holdingId.value = holding.id;
   ui.holdingAccount.value = accountId;
   ui.holdingCode.value = holding.code;
+  if (ui.holdingType) {
+    ui.holdingType.value = isCashHolding(holding)
+      ? 'cash'
+      : isFundHolding(holding)
+        ? 'fund'
+        : 'stock';
+  }
   ui.holdingCategory.value = holding.category || '';
   const value = getHoldingValue(holding);
   const profit = getHoldingProfit(holding);
@@ -1390,6 +1481,11 @@ async function fetchQuoteByCode(code) {
 
 async function handleHoldingSearch() {
   const rawCode = ui.holdingCode.value.trim();
+  if (getHoldingMode() === 'cash') {
+    applyCashDefaults();
+    updateDerivedHolding();
+    return;
+  }
   if (!rawCode) {
     window.alert('请输入标的代码');
     return;
@@ -1432,16 +1528,20 @@ function handleHoldingSubmit(event) {
     window.alert('请选择账户');
     return;
   }
-  if (!code) {
+  if (!code && mode !== 'cash') {
     window.alert('请完整填写持仓信息');
     return;
   }
-  if (!ui.holdingName.value || !ui.holdingPrice.value) {
+  if (mode !== 'cash' && (!ui.holdingName.value || !ui.holdingPrice.value)) {
     window.alert('请先检索标的获取最新数据');
     return;
   }
   if (mode === 'fund' && (Number.isNaN(amountInput) || Number.isNaN(profitInput))) {
     window.alert('请填写持有金额与持有收益');
+    return;
+  }
+  if (mode === 'cash' && Number.isNaN(amountInput)) {
+    window.alert('请填写持有金额');
     return;
   }
   if (mode === 'stock' && (Number.isNaN(quantityInput) || Number.isNaN(costPriceInput))) {
@@ -1455,12 +1555,15 @@ function handleHoldingSubmit(event) {
     return;
   }
 
-  const symbol = ui.holdingCode.dataset.symbol || normalizeSymbol(code);
-  const name = ui.holdingCode.dataset.name || ui.holdingName.value || code;
-  const currency = ui.holdingCode.dataset.currency || ui.holdingCurrency.value || state.settings.baseCurrency;
-  const lastPrice = Number(ui.holdingCode.dataset.price) || Number(ui.holdingPrice.value) || 0;
-  const source = ui.holdingCode.dataset.source || (isFundCode(code) ? 'fund' : 'proxy');
-  const category = ui.holdingCode.dataset.category || ui.holdingCategory.value.trim() || '未分类';
+  const resolvedCode = mode === 'cash' ? 'CASH' : code;
+  const symbol = ui.holdingCode.dataset.symbol || (mode === 'cash' ? 'CASH' : normalizeSymbol(resolvedCode));
+  const name = ui.holdingCode.dataset.name || ui.holdingName.value || resolvedCode;
+  const currency = mode === 'cash'
+    ? (ui.holdingCurrency.value || state.settings.baseCurrency)
+    : (ui.holdingCode.dataset.currency || ui.holdingCurrency.value || state.settings.baseCurrency);
+  const lastPrice = mode === 'cash' ? 1 : Number(ui.holdingCode.dataset.price) || Number(ui.holdingPrice.value) || 0;
+  const source = mode === 'cash' ? 'cash' : (ui.holdingCode.dataset.source || (isFundCode(resolvedCode) ? 'fund' : 'proxy'));
+  const category = mode === 'cash' ? '现金' : (ui.holdingCode.dataset.category || ui.holdingCategory.value.trim() || '未分类');
   let amount = amountInput;
   let profit = profitInput;
   let quantity = quantityInput;
@@ -1471,9 +1574,13 @@ function handleHoldingSubmit(event) {
     const cost = Number.isFinite(quantity) && Number.isFinite(costPrice) ? quantity * costPrice : 0;
     amount = Number.isFinite(quantity) && Number.isFinite(lastPrice) ? quantity * lastPrice : 0;
     profit = amount - cost;
-  } else {
+  } else if (mode === 'fund') {
     amount = amountInput;
     profit = profitInput;
+    quantity = lastPrice > 0 ? amount / lastPrice : 0;
+  } else {
+    amount = amountInput;
+    profit = 0;
     quantity = lastPrice > 0 ? amount / lastPrice : 0;
   }
   const cost = mode === 'stock'
@@ -1482,7 +1589,7 @@ function handleHoldingSubmit(event) {
 
   const holding = {
     id: ui.holdingId.value || (crypto.randomUUID ? crypto.randomUUID() : `hold_${Date.now()}`),
-    code,
+    code: resolvedCode,
     symbol,
     name,
     currency,
@@ -1722,6 +1829,9 @@ async function refreshQuotes(force) {
   const lookupMap = new Map();
   state.accounts.forEach((account) => {
     (account.holdings || []).forEach((holding) => {
+      if (holding.source === 'cash') {
+        return;
+      }
       const key = holding.code || holding.symbol;
       if (!key) {
         return;
@@ -1751,6 +1861,7 @@ async function refreshQuotes(force) {
     fulfilled.forEach(({ quote, holdings }) => {
       holdings.forEach((holding) => {
         ensureHoldingTodayStart(holding, quote.price);
+        updateHoldingFromQuote(holding, quote.price);
         holding.symbol = quote.symbol;
         holding.name = quote.name;
         holding.currency = quote.currency || holding.currency;
@@ -1956,10 +2067,21 @@ function bindEvents() {
   });
   ui.holdingForm.addEventListener('submit', handleHoldingSubmit);
   ui.holdingSearch.addEventListener('click', handleHoldingSearch);
+  if (ui.holdingType) {
+    ui.holdingType.addEventListener('change', () => {
+      clearHoldingLookup();
+    });
+  }
   ui.holdingAmount.addEventListener('input', updateDerivedHolding);
   ui.holdingProfit.addEventListener('input', updateDerivedHolding);
   ui.holdingQuantity.addEventListener('input', updateDerivedHolding);
   ui.holdingCostPrice.addEventListener('input', updateDerivedHolding);
+  ui.holdingCurrency.addEventListener('input', () => {
+    if (getHoldingMode() === 'cash') {
+      applyCashDefaults();
+      updateDerivedHolding();
+    }
+  });
   ui.holdingCode.addEventListener('input', clearHoldingLookup);
   ui.resetHoldingForm.addEventListener('click', resetHoldingForm);
   ui.holdingList.addEventListener('click', handleHoldingListClick);
