@@ -87,6 +87,13 @@ header .actions {
   align-items: center;
 }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 button,
 select,
 input,
@@ -197,10 +204,10 @@ section {
   flex-wrap: wrap;
 }
 
-.summary-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin: 8px 0 16px;
+.summary-notices {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 14px;
 }
 
 .grid {
@@ -602,13 +609,10 @@ input[readonly] {
 
 .notice {
   background: rgba(255, 209, 102, 0.25);
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: 12px;
-  font-size: 12px;
-}
-
-.notice + .notice {
-  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .icon-button {
