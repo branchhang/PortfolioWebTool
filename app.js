@@ -286,13 +286,19 @@ function getHoldingQuantity(holding, value, price) {
   return 0;
 }
 
-function getHoldingTodayProfit(holding, quantity) {
+function getHoldingTodayProfit(holding) {
   const today = getTodayISO();
   if (getDateKeyFromTimestamp(holding.lastUpdate) !== today) {
     return null;
   }
+  const latestValue = getHoldingValue(holding);
+  const startAmount = Number(holding.todayStartAmount);
+  if (Number.isFinite(startAmount)) {
+    return latestValue - startAmount;
+  }
   const startPrice = Number(holding.todayStartPrice);
   const latestPrice = Number(holding.lastPrice);
+  const quantity = getHoldingQuantity(holding, latestValue, latestPrice);
   if (!Number.isFinite(startPrice) || !Number.isFinite(latestPrice) || !Number.isFinite(quantity)) {
     return null;
   }
@@ -301,11 +307,13 @@ function getHoldingTodayProfit(holding, quantity) {
 
 function ensureHoldingTodayStart(holding, latestPrice) {
   const today = getTodayISO();
-  if (holding.todayStartDate === today && Number.isFinite(Number(holding.todayStartPrice))) {
+  if (holding.todayStartDate === today && Number.isFinite(Number(holding.todayStartAmount))) {
     return;
   }
   const fallbackPrice = Number(holding.lastPrice);
   holding.todayStartPrice = Number.isFinite(fallbackPrice) && fallbackPrice > 0 ? fallbackPrice : Number(latestPrice) || 0;
+  const startValue = getHoldingValue(holding);
+  holding.todayStartAmount = Number.isFinite(startValue) ? startValue : 0;
   holding.todayStartDate = today;
 }
 
@@ -853,7 +861,7 @@ function renderHoldingsList() {
     const costBase = toBaseCurrency(cost, currency);
     const pnlBase = toBaseCurrency(profit, currency);
     const returnRate = costBase > 0 ? pnlBase / costBase : 0;
-    const todayProfit = getHoldingTodayProfit(holding, quantity);
+    const todayProfit = getHoldingTodayProfit(holding);
     const todayProfitBase = todayProfit === null ? null : toBaseCurrency(todayProfit, currency);
     const pnlMain = state.settings.pnlMode === 'percent'
       ? formatPercentDisplay(returnRate)
@@ -977,7 +985,7 @@ function renderHoldingDetail() {
   const costBase = toBaseCurrency(cost, currency);
   const pnlBase = toBaseCurrency(profit, currency);
   const returnRate = costBase > 0 ? pnlBase / costBase : 0;
-  const todayProfit = getHoldingTodayProfit(holding, quantity);
+  const todayProfit = getHoldingTodayProfit(holding);
   const todayProfitBase = todayProfit === null ? null : toBaseCurrency(todayProfit, currency);
   const todayLabel = todayProfitBase === null ? '等待今日数据更新' : formatCurrencyDisplay(todayProfitBase);
   const todayClass = todayProfitBase === null ? '' : getPnlClass(todayProfitBase);
@@ -1464,6 +1472,7 @@ function handleHoldingSubmit(event) {
     source,
     lastUpdate: Date.now(),
     todayStartPrice: lastPrice,
+    todayStartAmount: amount,
     todayStartDate: getTodayISO()
   };
 
