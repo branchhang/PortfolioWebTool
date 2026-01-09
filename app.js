@@ -580,7 +580,7 @@ function syncHoldingSortControls() {
   }
 }
 
-function renderLineChart(svg, data, color) {
+function renderLineChart(svg, data, color, options = {}) {
   const width = 320;
   const height = 180;
   const padding = 20;
@@ -613,6 +613,17 @@ function renderLineChart(svg, data, color) {
 
   const maxLabel = maskValue(formatNumber(max));
   const minLabel = maskValue(formatNumber(min));
+  const showPercent = options.showPercent;
+  const baseValue = typeof options.baseValue === 'number' ? options.baseValue : values[0] || 0;
+  const baseDenominator = Math.abs(baseValue) || 0;
+  const maxPercentLabel = showPercent
+    ? formatPercentDisplay(baseDenominator ? (max - baseValue) / baseDenominator : 0)
+    : '';
+  const minPercentLabel = showPercent
+    ? formatPercentDisplay(baseDenominator ? (min - baseValue) / baseDenominator : 0)
+    : '';
+  const labelLineHeight = 14;
+  const minTextY = height - 6 - (showPercent ? labelLineHeight : 0);
 
   svg.innerHTML = `
     <defs>
@@ -624,8 +635,14 @@ function renderLineChart(svg, data, color) {
     <path d="${areaPath}" fill="url(#${gradientId})" />
     <path d="${path}" fill="none" stroke="${color}" stroke-width="3" />
     <circle cx="${points[points.length - 1].x}" cy="${points[points.length - 1].y}" r="4" fill="${color}" />
-    <text x="${padding}" y="${padding}" fill="rgba(255,255,255,0.65)" font-size="11">${maxLabel}</text>
-    <text x="${padding}" y="${height - 6}" fill="rgba(255,255,255,0.45)" font-size="11">${minLabel}</text>
+    <text x="${padding}" y="${padding}" fill="rgba(255,255,255,0.65)" font-size="11">
+      ${maxLabel}
+      ${showPercent ? `<tspan x="${padding}" dy="${labelLineHeight}">${maxPercentLabel}</tspan>` : ''}
+    </text>
+    <text x="${padding}" y="${minTextY}" fill="rgba(255,255,255,0.45)" font-size="11">
+      ${minLabel}
+      ${showPercent ? `<tspan x="${padding}" dy="${labelLineHeight}">${minPercentLabel}</tspan>` : ''}
+    </text>
   `;
 }
 
@@ -634,12 +651,14 @@ function updateCharts() {
   renderLineChart(
     ui.assetChart,
     series.map((item) => ({ label: item.label, value: item.assets })),
-    '#ffd166'
+    '#ffd166',
+    { showPercent: true, baseValue: series[0] ? series[0].assets : 0 }
   );
   renderLineChart(
     ui.pnlChart,
     series.map((item) => ({ label: item.label, value: item.pnl })),
-    '#06d6a0'
+    '#06d6a0',
+    { showPercent: true, baseValue: series[0] ? series[0].pnl : 0 }
   );
 }
 
