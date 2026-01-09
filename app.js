@@ -9,6 +9,8 @@ const DEFAULT_DATA = {
     pnlMode: 'amount',
     structureView: 'bar',
     accountFilter: [],
+    holdingSortBy: 'value',
+    holdingSortOrder: 'desc',
     fxRates: {
       CNY: 1,
       HKD: 1,
@@ -42,6 +44,8 @@ const ui = {
   accountFilters: document.querySelector('#accountFilters'),
   openAccountModal: document.querySelector('#openAccountModal'),
   openHoldingModal: document.querySelector('#openHoldingModal'),
+  holdingSortSelect: document.querySelector('#holdingSortSelect'),
+  holdingSortOrder: document.querySelector('#holdingSortOrder'),
   accountModal: document.querySelector('#accountModal'),
   holdingModal: document.querySelector('#holdingModal'),
   refreshRates: document.querySelector('#refreshRates'),
@@ -75,6 +79,12 @@ const ui = {
   holdingPrice: document.querySelector('#holdingPrice'),
   resetHoldingForm: document.querySelector('#resetHoldingForm'),
   holdingList: document.querySelector('#holdingList'),
+  backToAssets: document.querySelector('#backToAssets'),
+  editHoldingDetail: document.querySelector('#editHoldingDetail'),
+  holdingDetailTitle: document.querySelector('#holdingDetailTitle'),
+  holdingDetailSub: document.querySelector('#holdingDetailSub'),
+  holdingDetailCards: document.querySelector('#holdingDetailCards'),
+  holdingDetailInfo: document.querySelector('#holdingDetailInfo'),
   backupData: document.querySelector('#backupData'),
   restoreData: document.querySelector('#restoreData'),
   navButtons: Array.from(document.querySelectorAll('.bottom-nav button')),
@@ -82,6 +92,7 @@ const ui = {
 };
 
 let state = loadData();
+let holdingDetail = null;
 
 function loadData() {
   try {
@@ -108,11 +119,21 @@ function saveData() {
 }
 
 function getTodayISO() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
+  return getDateKey(new Date());
+}
+
+function getDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function getDateKeyFromTimestamp(timestamp) {
+  if (!timestamp) {
+    return '';
+  }
+  return getDateKey(new Date(timestamp));
 }
 
 function formatCurrency(value) {
@@ -252,6 +273,40 @@ function getHoldingCost(holding) {
     return cost;
   }
   return 0;
+}
+
+function getHoldingQuantity(holding, value, price) {
+  const storedQuantity = Number(holding.quantity);
+  if (Number.isFinite(storedQuantity) && storedQuantity > 0) {
+    return storedQuantity;
+  }
+  if (price > 0 && value) {
+    return value / price;
+  }
+  return 0;
+}
+
+function getHoldingTodayProfit(holding, quantity) {
+  const today = getTodayISO();
+  if (getDateKeyFromTimestamp(holding.lastUpdate) !== today) {
+    return null;
+  }
+  const startPrice = Number(holding.todayStartPrice);
+  const latestPrice = Number(holding.lastPrice);
+  if (!Number.isFinite(startPrice) || !Number.isFinite(latestPrice) || !Number.isFinite(quantity)) {
+    return null;
+  }
+  return (latestPrice - startPrice) * quantity;
+}
+
+function ensureHoldingTodayStart(holding, latestPrice) {
+  const today = getTodayISO();
+  if (holding.todayStartDate === today && Number.isFinite(Number(holding.todayStartPrice))) {
+    return;
+  }
+  const fallbackPrice = Number(holding.lastPrice);
+  holding.todayStartPrice = Number.isFinite(fallbackPrice) && fallbackPrice > 0 ? fallbackPrice : Number(latestPrice) || 0;
+  holding.todayStartDate = today;
 }
 
 function normalizeSymbol(code) {
@@ -503,6 +558,17 @@ function syncHeaderControls() {
   if (ui.structureToggle) {
     ui.structureToggle.checked = state.settings.structureView === 'pie';
     updateSwitchLabel(ui.structureToggle.closest('.switch'), ui.structureToggle.checked);
+  }
+}
+
+function syncHoldingSortControls() {
+  if (ui.holdingSortSelect) {
+    ui.holdingSortSelect.value = state.settings.holdingSortBy || 'value';
+  }
+  if (ui.holdingSortOrder) {
+    const isDesc = (state.settings.holdingSortOrder || 'desc') === 'desc';
+    ui.holdingSortOrder.textContent = isDesc ? '降序' : '升序';
+    ui.holdingSortOrder.setAttribute('aria-pressed', isDesc ? 'true' : 'false');
   }
 }
 
@@ -765,31 +831,86 @@ function renderHoldingsList() {
     return;
   }
 
-  allHoldings.forEach(({ account, holding }) => {
+  const sortBy = state.settings.holdingSortBy || 'value';
+  const sortOrder = state.settings.holdingSortOrder || 'desc';
+  let refreshedTodayStart = false;
+
+  const enrichedHoldings = allHoldings.map(({ account, holding }) => {
+    if (getDateKeyFromTimestamp(holding.lastUpdate) === getTodayISO()) {
+      const previousDate = holding.todayStartDate;
+      ensureHoldingTodayStart(holding, holding.lastPrice);
+      if (holding.todayStartDate !== previousDate) {
+        refreshedTodayStart = true;
+      }
+    }
     const price = Number(holding.lastPrice) || 0;
     const value = getHoldingValue(holding);
     const profit = getHoldingProfit(holding);
     const cost = getHoldingCost(holding);
     const currency = holding.currency || state.settings.baseCurrency;
-    const storedQuantity = Number(holding.quantity);
-    const quantity = Number.isFinite(storedQuantity) && storedQuantity > 0
-      ? storedQuantity
-      : price > 0 && value
-        ? value / price
-        : 0;
+    const quantity = getHoldingQuantity(holding, value, price);
     const valueBase = toBaseCurrency(value, currency);
     const costBase = toBaseCurrency(cost, currency);
     const pnlBase = toBaseCurrency(profit, currency);
     const returnRate = costBase > 0 ? pnlBase / costBase : 0;
+    const todayProfit = getHoldingTodayProfit(holding, quantity);
+    const todayProfitBase = todayProfit === null ? null : toBaseCurrency(todayProfit, currency);
     const pnlMain = state.settings.pnlMode === 'percent'
       ? formatPercentDisplay(returnRate)
       : formatCurrencyDisplay(pnlBase);
     const pnlSub = state.settings.pnlMode === 'percent'
       ? formatCurrencyDisplay(pnlBase)
       : formatPercentDisplay(returnRate);
+    return {
+      account,
+      holding,
+      price,
+      valueBase,
+      pnlBase,
+      returnRate,
+      quantity,
+      currency,
+      todayProfitBase,
+      pnlMain,
+      pnlSub
+    };
+  });
 
+  if (refreshedTodayStart) {
+    saveData();
+  }
+
+  const sortMap = {
+    value: 'valueBase',
+    pnl: 'pnlBase',
+    return: 'returnRate'
+  };
+  const sortKey = sortMap[sortBy] || 'valueBase';
+  enrichedHoldings.sort((a, b) => {
+    const diff = (b[sortKey] || 0) - (a[sortKey] || 0);
+    return sortOrder === 'asc' ? -diff : diff;
+  });
+
+  enrichedHoldings.forEach((itemData) => {
+    const {
+      account,
+      holding,
+      price,
+      valueBase,
+      pnlBase,
+      returnRate,
+      quantity,
+      currency,
+      todayProfitBase,
+      pnlMain,
+      pnlSub
+    } = itemData;
+    const todayLabel = todayProfitBase === null ? '等待今日数据更新' : formatCurrencyDisplay(todayProfitBase);
+    const todayClass = todayProfitBase === null ? '' : getPnlClass(todayProfitBase);
     const item = document.createElement('div');
     item.className = 'holding-item';
+    item.dataset.id = holding.id;
+    item.dataset.accountId = account.id;
     item.innerHTML = `
       <div class="holding-header">
         <div class="holding-title">
@@ -807,8 +928,13 @@ function renderHoldingsList() {
           <span>份额 ${formatNumberDisplay(quantity)}</span>
           <span class="holding-pnl ${getPnlClass(pnlBase)}">盈亏 ${pnlMain} · ${pnlSub}</span>
         </div>
+        <div class="holding-stats">
+          <span>今日收益</span>
+          <span class="${todayClass}">${todayLabel}</span>
+        </div>
       </div>
       <div class="holding-actions">
+        <button type="button" class="ghost" data-action="detail" data-account-id="${account.id}" data-id="${holding.id}">详情</button>
         <button type="button" class="ghost" data-action="edit" data-account-id="${account.id}" data-id="${holding.id}">编辑</button>
         <button type="button" class="ghost" data-action="delete" data-account-id="${account.id}" data-id="${holding.id}">删除</button>
       </div>
@@ -816,6 +942,110 @@ function renderHoldingsList() {
 
     ui.holdingList.appendChild(item);
   });
+}
+
+function renderHoldingDetail() {
+  if (!ui.holdingDetailCards || !ui.holdingDetailInfo || !ui.holdingDetailTitle || !ui.holdingDetailSub) {
+    return;
+  }
+  if (!holdingDetail) {
+    ui.holdingDetailTitle.textContent = '持仓详情';
+    ui.holdingDetailSub.textContent = '选择标的查看详情';
+    ui.holdingDetailCards.innerHTML = '';
+    ui.holdingDetailInfo.innerHTML = '<div class="helper">暂无持仓详情可展示。</div>';
+    if (ui.editHoldingDetail) {
+      ui.editHoldingDetail.disabled = true;
+    }
+    return;
+  }
+
+  const account = state.accounts.find((item) => item.id === holdingDetail.accountId);
+  const holding = account?.holdings?.find((item) => item.id === holdingDetail.holdingId);
+  if (!account || !holding) {
+    holdingDetail = null;
+    renderHoldingDetail();
+    return;
+  }
+
+  const price = Number(holding.lastPrice) || 0;
+  const value = getHoldingValue(holding);
+  const profit = getHoldingProfit(holding);
+  const cost = getHoldingCost(holding);
+  const currency = holding.currency || state.settings.baseCurrency;
+  const quantity = getHoldingQuantity(holding, value, price);
+  const valueBase = toBaseCurrency(value, currency);
+  const costBase = toBaseCurrency(cost, currency);
+  const pnlBase = toBaseCurrency(profit, currency);
+  const returnRate = costBase > 0 ? pnlBase / costBase : 0;
+  const todayProfit = getHoldingTodayProfit(holding, quantity);
+  const todayProfitBase = todayProfit === null ? null : toBaseCurrency(todayProfit, currency);
+  const todayLabel = todayProfitBase === null ? '等待今日数据更新' : formatCurrencyDisplay(todayProfitBase);
+  const todayClass = todayProfitBase === null ? '' : getPnlClass(todayProfitBase);
+
+  ui.holdingDetailTitle.textContent = holding.name || holding.code;
+  ui.holdingDetailSub.textContent = `${account.name} · ${holding.category || '未分类'}`;
+  ui.holdingDetailCards.innerHTML = `
+    <div class="panel">
+      <h3>持仓市值</h3>
+      <div class="value">${formatCurrencyDisplay(valueBase)}</div>
+      <div class="sub">成本 ${formatCurrencyDisplay(costBase)}</div>
+    </div>
+    <div class="panel">
+      <h3>累计盈亏</h3>
+      <div class="value ${getPnlClass(pnlBase)}">${formatPnlDisplay(pnlBase, costBase)}</div>
+      <div class="sub">收益率 ${formatPercentDisplay(returnRate)}</div>
+    </div>
+    <div class="panel">
+      <h3>今日收益</h3>
+      <div class="value ${todayClass}">${todayLabel}</div>
+      <div class="sub">最新更新 ${getDateKeyFromTimestamp(holding.lastUpdate) || '暂无记录'}</div>
+    </div>
+  `;
+
+  const lastUpdate = holding.lastUpdate
+    ? new Date(holding.lastUpdate).toLocaleString('zh-CN', { hour12: false })
+    : '暂无记录';
+
+  ui.holdingDetailInfo.innerHTML = `
+    <div class="detail-info-grid">
+      <div class="detail-info-card">
+        <span>标的代码</span>
+        <strong>${holding.symbol || holding.code}</strong>
+      </div>
+      <div class="detail-info-card">
+        <span>币种</span>
+        <strong>${currency}</strong>
+      </div>
+      <div class="detail-info-card">
+        <span>最新价</span>
+        <strong>${formatNumberDisplay(price)}</strong>
+      </div>
+      <div class="detail-info-card">
+        <span>持有份额</span>
+        <strong>${formatNumberDisplay(quantity)}</strong>
+      </div>
+      <div class="detail-info-card">
+        <span>持仓成本价</span>
+        <strong>${formatNumberDisplay(holding.costPrice || 0)}</strong>
+      </div>
+      <div class="detail-info-card">
+        <span>持仓成本（原币种）</span>
+        <strong>${formatNumberDisplay(cost)}</strong>
+      </div>
+      <div class="detail-info-card">
+        <span>账户名称</span>
+        <strong>${account.name}</strong>
+      </div>
+      <div class="detail-info-card">
+        <span>最新更新时间</span>
+        <strong>${lastUpdate}</strong>
+      </div>
+    </div>
+  `;
+
+  if (ui.editHoldingDetail) {
+    ui.editHoldingDetail.disabled = false;
+  }
 }
 
 function resetAccountForm() {
@@ -994,6 +1224,20 @@ function toggleStructureView() {
   state.settings.structureView = state.settings.structureView === 'pie' ? 'bar' : 'pie';
   saveData();
   render();
+}
+
+function updateHoldingSortBy(value) {
+  state.settings.holdingSortBy = value || 'value';
+  saveData();
+  renderHoldingsList();
+  syncHoldingSortControls();
+}
+
+function toggleHoldingSortOrder() {
+  state.settings.holdingSortOrder = state.settings.holdingSortOrder === 'asc' ? 'desc' : 'asc';
+  saveData();
+  renderHoldingsList();
+  syncHoldingSortControls();
 }
 
 function handleAccountFilterClick(event) {
@@ -1218,7 +1462,9 @@ function handleHoldingSubmit(event) {
     lastPrice,
     category,
     source,
-    lastUpdate: Date.now()
+    lastUpdate: Date.now(),
+    todayStartPrice: lastPrice,
+    todayStartDate: getTodayISO()
   };
 
   const holdings = account.holdings || [];
@@ -1242,8 +1488,13 @@ function handleHoldingListClick(event) {
   if (!(target instanceof HTMLElement)) {
     return;
   }
-  const id = target.dataset.id;
-  const accountId = target.dataset.accountId;
+  const actionButton = target.closest('button[data-action]');
+  const item = target.closest('.holding-item');
+  if (!item) {
+    return;
+  }
+  const id = actionButton?.dataset.id || item.dataset.id;
+  const accountId = actionButton?.dataset.accountId || item.dataset.accountId;
   if (!id || !accountId) {
     return;
   }
@@ -1256,19 +1507,32 @@ function handleHoldingListClick(event) {
     return;
   }
 
-  if (target.dataset.action === 'edit') {
+  if (actionButton && actionButton.dataset.action === 'detail') {
+    holdingDetail = { accountId, holdingId: holding.id };
+    renderHoldingDetail();
+    switchPage('holding-detail');
+    return;
+  }
+  if (actionButton && actionButton.dataset.action === 'edit') {
     fillHoldingForm(accountId, holding);
     openModal(ui.holdingModal);
     return;
   }
-  if (target.dataset.action === 'delete') {
+  if (actionButton && actionButton.dataset.action === 'delete') {
     if (window.confirm('确定删除该持仓吗？')) {
       account.holdings = (account.holdings || []).filter((item) => item.id !== id);
       saveData();
       ensureTodaySnapshot();
       render();
     }
+    return;
   }
+
+  const isActive = item.classList.contains('is-active');
+  ui.holdingList.querySelectorAll('.holding-item.is-active').forEach((node) => {
+    node.classList.remove('is-active');
+  });
+  item.classList.toggle('is-active', !isActive);
 }
 
 function buildRateStatusMessage(success) {
@@ -1389,6 +1653,7 @@ async function refreshQuotes(force) {
     const fulfilled = results.filter((result) => result.status === 'fulfilled').map((result) => result.value);
     fulfilled.forEach(({ quote, holdings }) => {
       holdings.forEach((holding) => {
+        ensureHoldingTodayStart(holding, quote.price);
         holding.symbol = quote.symbol;
         holding.name = quote.name;
         holding.currency = quote.currency || holding.currency;
@@ -1508,6 +1773,7 @@ function render() {
   renderAccountOptions();
   renderAccountFilters();
   renderHoldingsList();
+  renderHoldingDetail();
   if (ui.baseCurrencySelect) {
     ui.baseCurrencySelect.innerHTML = CURRENCIES.map(
       (currency) => `<option value="${currency}">${currency}</option>`
@@ -1518,6 +1784,7 @@ function render() {
   ui.rateStatus.textContent = rateMessage;
   ui.quoteStatus.textContent = buildQuoteStatusMessage(state.settings.lastQuoteOk !== false);
   syncHeaderControls();
+  syncHoldingSortControls();
 }
 
 function bindEvents() {
@@ -1536,6 +1803,14 @@ function bindEvents() {
     ui.baseCurrencySelect.addEventListener('change', (event) => {
       setBaseCurrency(event.target.value);
     });
+  }
+  if (ui.holdingSortSelect) {
+    ui.holdingSortSelect.addEventListener('change', (event) => {
+      updateHoldingSortBy(event.target.value);
+    });
+  }
+  if (ui.holdingSortOrder) {
+    ui.holdingSortOrder.addEventListener('click', toggleHoldingSortOrder);
   }
   ui.accountForm.addEventListener('submit', handleAccountSubmit);
   ui.resetAccountForm.addEventListener('click', resetAccountForm);
@@ -1587,6 +1862,23 @@ function bindEvents() {
   ui.holdingCode.addEventListener('input', clearHoldingLookup);
   ui.resetHoldingForm.addEventListener('click', resetHoldingForm);
   ui.holdingList.addEventListener('click', handleHoldingListClick);
+  if (ui.backToAssets) {
+    ui.backToAssets.addEventListener('click', () => switchPage('assets'));
+  }
+  if (ui.editHoldingDetail) {
+    ui.editHoldingDetail.addEventListener('click', () => {
+      if (!holdingDetail) {
+        return;
+      }
+      const account = state.accounts.find((item) => item.id === holdingDetail.accountId);
+      const holding = account?.holdings?.find((item) => item.id === holdingDetail.holdingId);
+      if (!account || !holding) {
+        return;
+      }
+      fillHoldingForm(account.id, holding);
+      openModal(ui.holdingModal);
+    });
+  }
   ui.backupData.addEventListener('click', backupData);
   ui.restoreData.addEventListener('change', restoreData);
   ui.navButtons.forEach((button) => {

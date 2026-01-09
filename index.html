@@ -116,7 +116,18 @@
         <section>
           <div class="section-head">
             <h2 class="section-title">持仓管理</h2>
-            <button id="openHoldingModal" class="ghost">新增/编辑持仓</button>
+            <div class="section-actions">
+              <label class="inline-select">
+                <span>排序</span>
+                <select id="holdingSortSelect">
+                  <option value="value">按金额</option>
+                  <option value="pnl">按盈亏额</option>
+                  <option value="return">按盈亏率</option>
+                </select>
+              </label>
+              <button id="holdingSortOrder" class="ghost sort-toggle" aria-pressed="true">降序</button>
+              <button id="openHoldingModal" class="ghost">新增/编辑持仓</button>
+            </div>
           </div>
           <div class="panel compact">
             <div class="filter-tags" id="accountFilters"></div>
@@ -132,6 +143,23 @@
           <div class="panel compact">
             <div class="list compact-list" id="accountList"></div>
           </div>
+        </section>
+      </section>
+
+      <section class="page" data-page="holding-detail">
+        <section>
+          <div class="section-head detail-head">
+            <div class="detail-title">
+              <button id="backToAssets" class="ghost small">返回资产</button>
+              <div>
+                <h2 class="section-title" id="holdingDetailTitle">持仓详情</h2>
+                <div class="helper" id="holdingDetailSub">选择标的查看详情</div>
+              </div>
+            </div>
+            <button id="editHoldingDetail" class="ghost">编辑持仓</button>
+          </div>
+          <div class="grid detail-grid" id="holdingDetailCards"></div>
+          <div class="panel detail-panel" id="holdingDetailInfo"></div>
         </section>
       </section>
 
