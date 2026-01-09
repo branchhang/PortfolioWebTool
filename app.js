@@ -16,6 +16,9 @@ const DEFAULT_DATA = {
       HKD: 1,
       USD: 1
     },
+    lastVersionCheck: null,
+    lastVersionOk: true,
+    lastVersionStamp: '',
     lastRateFetch: null,
     lastRateOk: true,
     lastRateSource: '',
@@ -30,6 +33,8 @@ const ui = {
   refreshQuotes: document.querySelector('#refreshQuotes'),
   quoteStatus: document.querySelector('#quoteStatus'),
   rateStatus: document.querySelector('#rateStatus'),
+  refreshVersion: document.querySelector('#refreshVersion'),
+  versionStatus: document.querySelector('#versionStatus'),
   toggleVisibility: document.querySelector('#toggleVisibility'),
   baseCurrencySelect: document.querySelector('#baseCurrencySelect'),
   pnlModeToggle: document.querySelector('#pnlModeToggle'),
@@ -1597,6 +1602,70 @@ function buildQuoteStatusMessage(success) {
   return success ? message : `${message} · 行情更新失败`;
 }
 
+function buildVersionStatusMessage(success) {
+  const lastCheck = state.settings.lastVersionCheck
+    ? new Date(state.settings.lastVersionCheck).toLocaleString('zh-CN', { hour12: false })
+    : '暂无记录';
+  const latestVersion = state.settings.lastVersionStamp
+    ? new Date(state.settings.lastVersionStamp).toLocaleString('zh-CN', { hour12: false })
+    : '未知';
+  const message = `版本检查：${lastCheck} · 最新版本：${latestVersion}`;
+  return success ? message : `${message} · 获取失败`;
+}
+
+async function updateServiceWorker() {
+  if (!('serviceWorker' in navigator)) {
+    return;
+  }
+  const registration = await navigator.serviceWorker.getRegistration();
+  if (registration) {
+    await registration.update();
+  }
+}
+
+async function preloadLatestAssets() {
+  await Promise.allSettled([
+    fetch('/', { cache: 'no-store' }),
+    fetch('/index.html', { cache: 'no-store' }),
+    fetch('/styles.css', { cache: 'no-store' }),
+    fetch('/app.js', { cache: 'no-store' })
+  ]);
+}
+
+async function refreshVersion(force) {
+  const now = Date.now();
+  const lastCheck = state.settings.lastVersionCheck || 0;
+  if (!force && now - lastCheck < 6 * 60 * 60 * 1000) {
+    ui.versionStatus.textContent = buildVersionStatusMessage(state.settings.lastVersionOk !== false);
+    return;
+  }
+  ui.refreshVersion.disabled = true;
+  ui.refreshVersion.textContent = '更新中...';
+  try {
+    const response = await fetch(`/api/version?ts=${now}`, { cache: 'no-store' });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data || !data.updatedAt) {
+      throw new Error('No version data');
+    }
+    state.settings.lastVersionCheck = now;
+    state.settings.lastVersionOk = true;
+    state.settings.lastVersionStamp = data.updatedAt;
+    saveData();
+    ui.versionStatus.textContent = buildVersionStatusMessage(true);
+    await updateServiceWorker();
+    await preloadLatestAssets();
+    window.location.reload();
+  } catch (error) {
+    state.settings.lastVersionCheck = now;
+    state.settings.lastVersionOk = false;
+    saveData();
+    ui.versionStatus.textContent = buildVersionStatusMessage(false);
+  } finally {
+    ui.refreshVersion.disabled = false;
+    ui.refreshVersion.textContent = '版本更新';
+  }
+}
+
 async function refreshRates(force) {
   const now = Date.now();
   const lastFetch = state.settings.lastRateFetch || 0;
@@ -1811,6 +1880,7 @@ function render() {
   const rateMessage = buildRateStatusMessage(state.settings.lastRateOk !== false);
   ui.rateStatus.textContent = rateMessage;
   ui.quoteStatus.textContent = buildQuoteStatusMessage(state.settings.lastQuoteOk !== false);
+  ui.versionStatus.textContent = buildVersionStatusMessage(state.settings.lastVersionOk !== false);
   syncHeaderControls();
   syncHoldingSortControls();
 }
@@ -1818,6 +1888,9 @@ function render() {
 function bindEvents() {
   ui.refreshQuotes.addEventListener('click', () => refreshQuotes(true));
   ui.refreshRates.addEventListener('click', () => refreshRates(true));
+  if (ui.refreshVersion) {
+    ui.refreshVersion.addEventListener('click', () => refreshVersion(true));
+  }
   if (ui.toggleVisibility) {
     ui.toggleVisibility.addEventListener('click', toggleVisibility);
   }

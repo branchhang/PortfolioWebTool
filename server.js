@@ -20,6 +20,8 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml'
 };
 
+const VERSION_FILES = ['index.html', 'styles.css', 'app.js', 'sw.js', 'manifest.json', 'assets/icon.svg'];
+
 function send(res, status, body, headers = {}) {
   res.writeHead(status, headers);
   res.end(body);
@@ -279,6 +281,27 @@ function handleCors(req, res) {
   return false;
 }
 
+async function handleApiVersion(req, res) {
+  if (handleCors(req, res)) {
+    return;
+  }
+  try {
+    const stats = await Promise.allSettled(
+      VERSION_FILES.map((file) => fs.promises.stat(path.join(ROOT, file)))
+    );
+    const mtimes = stats
+      .filter((result) => result.status === 'fulfilled')
+      .map((result) => result.value.mtimeMs);
+    const latest = mtimes.length ? Math.max(...mtimes) : Date.now();
+    sendJson(res, 200, {
+      updatedAt: new Date(latest).toISOString(),
+      files: VERSION_FILES
+    });
+  } catch (error) {
+    sendJson(res, 500, { error: 'version lookup failed' });
+  }
+}
+
 async function handleApiQuote(req, res, url) {
   if (handleCors(req, res)) {
     return;
@@ -336,6 +359,12 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (url.pathname === '/api/quote') {
     handleApiQuote(req, res, url).catch(() => {
+      sendJson(res, 500, { error: 'server error' });
+    });
+    return;
+  }
+  if (url.pathname === '/api/version') {
+    handleApiVersion(req, res).catch(() => {
       sendJson(res, 500, { error: 'server error' });
     });
     return;
