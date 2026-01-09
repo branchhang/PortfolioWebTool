@@ -1,13 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffd166"/>
-      <stop offset="1" stop-color="#ef476f"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1320"/>
+      <stop offset="1" stop-color="#101b2c"/>
     </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.06"/>
+    </linearGradient>
+    <linearGradient id="coin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffd166"/>
+      <stop offset="1" stop-color="#ff8c42"/>
+    </linearGradient>
+    <filter id="glass-blur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
   </defs>
-  <rect width="512" height="512" rx="96" fill="#0b1320"/>
-  <circle cx="156" cy="180" r="78" fill="url(#g)" opacity="0.9"/>
-  <rect x="120" y="260" width="272" height="140" rx="28" fill="#1b2a41"/>
-  <path d="M152 338 L214 298 L262 330 L326 270 L360 300" fill="none" stroke="#ffd166" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="360" cy="300" r="10" fill="#ffd166"/>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <g opacity="0.9">
+    <rect x="96" y="112" width="320" height="288" rx="48" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+    <rect x="112" y="128" width="288" height="256" rx="40" fill="#ffffff" opacity="0.05" filter="url(#glass-blur)"/>
+  </g>
+
+  <g stroke="#d5e6ff" stroke-opacity="0.8" stroke-width="8" stroke-linecap="round">
+    <line x1="156" y1="220" x2="276" y2="220"/>
+    <line x1="156" y1="258" x2="300" y2="258"/>
+    <line x1="156" y1="296" x2="260" y2="296"/>
+  </g>
+
+  <path d="M176 340 L240 292 L286 318 L336 266" fill="none" stroke="#9fe7c3" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M332 250 L336 266 L320 270" fill="none" stroke="#9fe7c3" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g>
+    <circle cx="352" cy="334" r="36" fill="url(#coin)"/>
+    <circle cx="352" cy="334" r="28" fill="none" stroke="#fff3c4" stroke-width="4" opacity="0.8"/>
+    <path d="M352 318 C346 318 342 322 342 328 C342 342 366 334 366 348 C366 354 362 358 352 358 C346 358 340 356 336 352" fill="none" stroke="#fff3c4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="352" y1="312" x2="352" y2="364" stroke="#fff3c4" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <path d="M140 150 C180 130 220 132 260 156" fill="none" stroke="#ffffff" stroke-opacity="0.4" stroke-width="6" stroke-linecap="round"/>
 </svg>
